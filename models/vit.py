@@ -80,10 +80,13 @@ class Attention(nn.Module):
             self.save_attention_map(attn)
             attn.register_hook(self.save_attn_gradients)        
 
+        # x ([32, 197, 768])
+        # attn b, 12, 197, 197]) 
+      
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        return x, attn
 
 
 class Block(nn.Module):
@@ -101,10 +104,11 @@ class Block(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
 
-    def forward(self, x, register_hook=False, prompt=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
+    def forward(self, x, register_hook=False, prompt=None, prompt_location="attention"):
+        _x, attn = self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt if prompt_location=="attention" else None)
+        x = x + self.drop_path(_x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
+        return x, attn
 
     
 class VisionTransformer(nn.Module):
@@ -184,30 +188,52 @@ class VisionTransformer(nn.Module):
         x = self.pos_drop(x)
 
         prompt_loss = torch.zeros((1,), requires_grad=True).cuda()
-        for i,blk in enumerate(self.blocks):
-
-            if prompt is not None:
-                if train:
-                    p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
-                    prompt_loss += loss
+        if prompt is None:
+            for i, blk in enumerate(self.blocks):
+                x, attn = blk(x, register_blk==i)
+        else:
+            if prompt is not None and prompt.flag=="my":
+                prompt_list, loss, x = prompt.forward(q, 0, x, train=True, task_id=task_id)
+                shape2 = prompt_list.shape[1]
+                # for p_i in range(shape2):
+                    # print(f"task {task_id} my shallow prompt {p_i}:{prompt_list[0][p_i].sum()}")
+                if prompt.prompt_location == "input":
+                    # prepend input-level prompt
+                    x = torch.cat((
+                        x[:, :1, :], # cls
+                        prompt_list,
+                        x[:, 1:, :]
+                    ), dim=1)
+                    # 0-11 layers
+                    for i, blk in enumerate(self.blocks):
+                        x, attn = blk(x, register_blk==i)
                 else:
-                    p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
-                # if p_list is not None and i == 1:
-                #     print(x[0,0,0:10])
-                #     print(p_list[0][0,0,0:10])
-                #     print(apple)
-                # if p_list is not None:
-                #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
-                #     p_list = None
-            else:
-                p_list = None
-
-            x = blk(x, register_blk==i, prompt=p_list)
-            # if i == 11: x = x.detach()
+                    raise ValueError('prompt location not implemented!')
+            
+            # l2p,dual,coda  attention prompt
+            else: 
+                for i, blk in enumerate(self.blocks):
+                    if prompt is not None:
+                        if train:
+                            prompt_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+                            prompt_loss += loss
+                        else:
+                            prompt_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+                        # if p_list is not None and i == 1:
+                        #     print(x[0,0,0:10])
+                        #     print(p_list[0][0,0,0:10])
+                        #     print(apple)
+                        # if p_list is not None:
+                        #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
+                        #     p_list = None
+                    else:
+                        prompt_list = None
+                    x, attn = blk(x, register_blk==i, prompt=prompt_list)
+                # if i == 11: x = x.detach()
 
         x = self.norm(x)
         
-        return x, prompt_loss
+        return x, prompt_loss, attn
 
     @torch.jit.ignore()
     def load_pretrained(self, checkpoint_path, prefix=''):

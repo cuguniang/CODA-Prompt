@@ -45,7 +45,7 @@ def create_args():
     return parser
 
 def get_args(argv):
-    parser=create_args()
+    parser = create_args()
     args = parser.parse_args(argv)
     config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
     config.update(vars(args))
@@ -156,7 +156,12 @@ if __name__ == '__main__':
                     save_file = m_dir+skey+'.yaml'
                     result=avg_metrics[mkey][skey]
                     yaml_results = {}
-                    if len(result.shape) > 2:
+                    if isinstance(result, tuple):
+                        print(skey, mkey, result)
+                        yaml_results['mean'] = result[0]
+                    elif isinstance(result, list):
+                        yaml_results['mean'] = result[0] if len(result)>0 else ""
+                    elif len(result.shape) > 2:
                         yaml_results['mean'] = result[:,:,:r+1].mean(axis=2).tolist()
                         if r>1: yaml_results['std'] = result[:,:,:r+1].std(axis=2).tolist()
                         yaml_results['history'] = result[:,:,:r+1].tolist()

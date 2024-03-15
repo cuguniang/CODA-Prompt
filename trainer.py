@@ -10,6 +10,7 @@ import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
+from utils.calc_forgetting import calc_coda_forgetting, calc_general_forgetting
 
 class Trainer:
 
@@ -27,7 +28,7 @@ class Trainer:
         self.model_top_dir = args.log_dir
 
         # select dataset
-        self.grayscale_vis = False
+        self.grayscale_vis = True
         self.top_k = 1
         if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
@@ -41,12 +42,10 @@ class Trainer:
             Dataset = dataloaders.iIMAGENET_R
             num_classes = 200
             self.dataset_size = [224,224,3]
-            self.top_k = 1
         elif args.dataset == 'DomainNet':
             Dataset = dataloaders.iDOMAIN_NET
             num_classes = 345
             self.dataset_size = [224,224,3]
-            self.top_k = 1
         else:
             raise ValueError('Dataset not implemented!')
 
@@ -227,6 +226,8 @@ class Trainer:
         avg_acc_pt = acc_dict['pt']
         avg_acc_pt_local = acc_dict['pt-local']
 
+        if self.max_task > 1:
+            forgetting_table = np.zeros((1,self.max_task,self.max_task)) 
         # Calculate average performance across self.tasks
         # Customize this part for a different performance metric
         avg_acc_history = [0] * self.max_task
@@ -238,13 +239,23 @@ class Trainer:
                 cls_acc_sum += acc_table[val_name][train_name]
                 avg_acc_pt[j,i,self.seed] = acc_table[val_name][train_name]
                 avg_acc_pt_local[j,i,self.seed] = acc_table_pt[val_name][train_name]
+                if self.max_task > 1:
+                    forgetting_table[0][i][j] = acc_table[val_name][train_name]
             avg_acc_history[i] = cls_acc_sum / (i + 1)
 
         # Gather the final avg accuracy
+        # i行：学完第i个任务后，1-i个任务上的avg acc
         avg_acc_all[:,self.seed] = avg_acc_history
+        
+        if self.max_task > 1:
+            coda_forgetting = calc_coda_forgetting(forgetting_table)
+            general_forgetting = calc_general_forgetting(forgetting_table)
 
         # repack dictionary and return
-        return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local}
+        if  self.max_task > 1:
+            return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local,'coda_forgetting':coda_forgetting,'general_forgetting':general_forgetting}
+        else:
+            return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local}
 
     def evaluate(self, avg_metrics):
 
@@ -274,7 +285,8 @@ class Trainer:
             self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
             self.learner.pre_steps()
             self.learner.load_model(model_save_dir)
-
+            self.learner.print_model()
+            
             # set task id for model (needed for prompting)
             try:
                 self.learner.model.module.task_id = i
@@ -287,9 +299,11 @@ class Trainer:
             self.reset_cluster_labels = True
             for j in range(i+1):
                 val_name = self.task_names[j]
+                # 不给定task identity
                 metric_table['acc'][val_name][self.task_names[i]] = self.task_eval(j)
             for j in range(i+1):
                 val_name = self.task_names[j]
+                # 给定task identity的情况下
                 metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
 
         # summarize metrics

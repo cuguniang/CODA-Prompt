@@ -23,13 +23,12 @@ class NormalNN(nn.Module):
         self.log = print
         self.config = learner_config
         self.out_dim = learner_config['out_dim']
-        self.model = self.create_model()
         self.reset_optimizer = True
         self.overwrite = learner_config['overwrite']
         self.batch_size = learner_config['batch_size']
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']
-
+        self.model = self.create_model()
         # replay memory parameters
         self.memory_size = self.config['memory']
         self.task_count = 0
@@ -158,6 +157,7 @@ class NormalNN(nn.Module):
         return total_loss.detach(), logits
 
     def validation(self, dataloader, model=None, task_in = None, task_metric='acc',  verbal = True, task_global=False):
+        # 训完一个task后对0-i任务的validation
 
         if model is None:
             model = self.model
@@ -169,6 +169,15 @@ class NormalNN(nn.Module):
 
         orig_mode = model.training
         model.eval()
+        
+        # 测试训练后的prompt的分布变化成什么样子了
+        # prompt_len, _ = model.module.prompt.prompts.shape
+        # for i in range(prompt_len):
+        #     mean_value = torch.mean(model.module.prompt.prompts[i,:])
+        #     std_value = torch.std(model.module.prompt.prompts[i,:])
+        #     print(f"prompts token {i} Mean:", mean_value.item())
+        #     print(f"prompts token {i} std:", std_value.item())
+
         for i, (input, target, task) in enumerate(dataloader):
 
             if self.gpu:
@@ -264,8 +273,7 @@ class NormalNN(nn.Module):
         cfg = self.config
 
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
-
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, tasks=self.tasks)
         return model
 
     def print_model(self):

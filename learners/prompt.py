@@ -28,7 +28,8 @@ class Prompt(NormalNN):
         logits, prompt_loss = self.model(inputs, train=True)
         logits = logits[:,:self.valid_out_dim]
 
-        # ce with heuristic
+        # ce with heuristic 
+        # 训练时把前面任务的logits设置为负无穷，这样就不会改变前面任务的last的值了
         logits[:,:self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
@@ -87,6 +88,18 @@ class Prompt(NormalNN):
         if len(self.config['gpuid']) > 1:
             self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
         return self
+
+
+# MY method!
+class MyPrompt(Prompt):
+
+    def __init__(self, learner_config):
+        super(MyPrompt, self).__init__(learner_config)
+
+    def create_model(self):
+        cfg = self.config
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'my', prompt_param=self.prompt_param, tasks=self.tasks)
+        return model
 
 # Our method!
 class CODAPrompt(Prompt):
