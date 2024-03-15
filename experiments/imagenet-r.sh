@@ -4,10 +4,10 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-OUTDIR=outputs/${DATASET}/10-task
+OUTDIR=/share/ckpt/yhzhou/coda/${DATASET}/10-task-0314-moco-lr0.1
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0 1'
 CONFIG=configs/imnet-r_prompt.yaml
 REPEAT=1
 OVERWRITE=0
@@ -17,6 +17,20 @@ OVERWRITE=0
 # process inputs
 mkdir -p $OUTDIR
 
+# my-prompt
+#
+# prompt parameter args:
+#    arg 1 = prompt location [input/attention]
+#    arg 2 = deep prompt [True/False]
+#    arg 3 = shared [True/False] only when deep work
+#    arg 4 = prompt length per task
+
+python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+    --learner_type prompt --learner_name MyPrompt \
+    --prompt_param input 1 \
+    --log_dir ${OUTDIR}/my-p
+
+
 # CODA-P
 #
 # prompt parameter args:
@@ -25,7 +39,7 @@ mkdir -p $OUTDIR
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name CODAPrompt \
-    --prompt_param 100 8 0.0 \
+    --prompt_param 20 100 0.0 \
     --log_dir ${OUTDIR}/coda-p
 
 # DualPrompt

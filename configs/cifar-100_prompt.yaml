@@ -4,15 +4,15 @@ other_split_size: 10
 schedule:
 - 20
 schedule_type: cosine
-batch_size: 128
+batch_size: 32
 optimizer: Adam
-lr: 0.001
+lr: 0.01
 momentum: 0.9
 weight_decay: 0
 model_type: zoo
-model_name: vit_pt_imnet
+model_name: moco_pt
 max_task: -1
-dataroot: data
+dataroot: /share_io03_ssd/test2/cgn/CIFAR
 workers: 4
 validation: False
 train_aug: True
