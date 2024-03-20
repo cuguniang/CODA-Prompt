@@ -17,7 +17,7 @@ from timm.models.layers import PatchEmbed
 
 __all__ = [
     'vit_small', 
-    'moco_base',
+    'vit_base',
     'vit_conv_small',
     'vit_conv_base',
 ]
@@ -120,7 +120,7 @@ def vit_small(**kwargs):
     model.default_cfg = _cfg()
     return model
 
-def moco_base(**kwargs):
+def vit_base(**kwargs):
     model = VisionTransformerMoCo(
         patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

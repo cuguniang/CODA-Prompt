@@ -21,7 +21,8 @@ class MyPrompt(nn.Module):
         self._init_smart(emb_d, prompt_param)
 
         # create and init prompt for each task
-        # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, mean=0.02391728200018406, std=0.478795012830553)
+        # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, mean=0.02391728200018406, std=0.478795012830553) # vit
+        # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, mean=-0.004702982492744923, std=0.02751666121184826) # moco
         p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d)
         setattr(self, f'prompts', p)
         
@@ -532,6 +533,8 @@ class ViTZoo(nn.Module):
         if self.prompt is not None:
             attn_loss_flag = False
 
+            # weighted output
+            weighted_output_flag = False
             # 蒸馏相关
             attn_within_prompt_pd_flag = True
             distill_flag = False
@@ -549,28 +552,30 @@ class ViTZoo(nn.Module):
             SELECT_TOKEN_NUMBER_2 = 196
             LIMIT_CLS = 0.01 #  attn score limit to decide number
             LIMIT_PROMPT = 0.01 #  attn score limit to decide number
-                
+            
             #0312 用attn i 做pd
             prompt_attn_pd_loss=0
             if self.prompt_flag == 'my':
+              
                 out, prompt_loss, attn = self.feat(x, prompt=self.prompt, train=train, task_id=self.task_id)
                 B, _, emb_d = out.shape
-                  
-                # 0312 用attn score做加权
-                out_image_tokens = out[:,2+self.task_id:,:]
-                selected_tokens_weighted_mean = torch.zeros_like(out[:,:self.task_id+1,:], device=out.device)
-                for i in range(0, self.task_id+1):
-                    attn2image_cls = self.get_attn_score_within_heads(attn[:,:,0,-196:], dim=1, method=attn_within_heads) # B, 196
-                    # prompt i 对 196 token的注意力
-                    attn2image_per_prompt = self.get_attn_score_within_heads(attn[:,:,i+1,-196:], dim=1, method=attn_within_heads)
-                    # attn2prompt_per_token = self.get_attn_score_within_heads(attn[:,:,-196:,i+1], dim=1, method=attn_within_heads)
+                if weighted_output_flag:
+                    # 0312 用attn score做加权
+                    out_image_tokens = out[:,2+self.task_id:,:]
+                    selected_tokens_weighted_mean = torch.zeros_like(out[:,:self.task_id+1,:], device=out.device)
+                    for i in range(0, self.task_id+1):
+                        attn2image_cls = self.get_attn_score_within_heads(attn[:,:,0,-196:], dim=1, method=attn_within_heads) # B, 196
+                        # prompt i 对 196 token的注意力
+                        attn2image_per_prompt = self.get_attn_score_within_heads(attn[:,:,i+1,-196:], dim=1, method=attn_within_heads)
+                        # attn2prompt_per_token = self.get_attn_score_within_heads(attn[:,:,-196:,i+1], dim=1, method=attn_within_heads)
+                        
+                        token_weights = torch.softmax(attn2image_per_prompt, dim=-1) # b,196
+                        selected_tokens_weighted_mean[:,i] = (out_image_tokens * token_weights.unsqueeze(dim=-1)).sum(dim=1)
                     
-                    token_weights = torch.softmax(attn2image_per_prompt, dim=-1) # b,196
-                    selected_tokens_weighted_mean[:,i] = (out_image_tokens * token_weights.unsqueeze(dim=-1)).sum(dim=1)
-                
-                out = selected_tokens_weighted_mean
-                
-
+                    out = selected_tokens_weighted_mean
+                else:
+                    # out = out[:,0,:]
+                    out = out[:,self.task_id+2:,:].mean(dim=1) # mean
 
                 if SELECT_FLAG:            
                     #初始化结果
@@ -768,7 +773,7 @@ class ViTZoo(nn.Module):
         else:
             out, _, _ = self.feat(x)
             out = out[:,0,:]
-        if self.prompt_flag != 'my':
+        if out.size(1) == 1:
             out = out.view(out.size(0), -1) # 如果out是cls
         # =====print last=====
         # mean_value = torch.mean(self.last.weight)
@@ -786,7 +791,8 @@ class ViTZoo(nn.Module):
         if not pen:
             out = self.last(out) # B x 100  
             # '''
-            if self.prompt_flag == 'my':
+            print("len(out.size)",len(out.size))
+            if len(out.size) > 2:
                 out_logits = out[:,0,:len(self.tasks[0])]
                 num_classes_cnt = len(self.tasks[0])
                 # attn_weights = torch.softmax(attn_per_prompt, dim=1) # attn
@@ -866,10 +872,10 @@ class MoCoZoo(ViTZoo):
         super(MoCoZoo, self).__init__(num_classes, pt, prompt_flag, prompt_param, tasks)
        
         if pt:
-            zoo_model = VisionTransformerMoCo(img_size=224, patch_size=16, embed_dim=768, depth=12,
-                                        num_heads=12,
-                                        drop_path_rate=0
-                                        )
+            zoo_model = moco_base()#VisionTransformerMoCo(img_size=224, patch_size=16, embed_dim=768, depth=12,
+                                     #   num_heads=12,
+                                    #    drop_path_rate=0
+                                   #     )
             ckpt = "/share/ckpt/cgn/vpt/model/mocov3_linear-vit-b-300ep.pth.tar"
 
             checkpoint = torch.load(ckpt, map_location="cpu")

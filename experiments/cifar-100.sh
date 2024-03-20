@@ -31,6 +31,7 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
     --prompt_param 1 \
     --log_dir ${OUTDIR}/my-p
 
+rm -rf ${OUTDIR}/my-p/models
 
 # CODA-P
 
@@ -43,6 +44,8 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
 #     --prompt_param 100 8 0.0 \
 #     --log_dir ${OUTDIR}/coda-p
 
+# rm -rf ${OUTDIR}/coda-p/models
+
 # DualPrompt
 
 # prompt parameter args:
@@ -54,6 +57,8 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
 #     --prompt_param 10 20 6 \
 #     --log_dir ${OUTDIR}/dual-prompt
 
+# rm -rf ${OUTDIR}/dual-prompt/models
+
 # L2P++
 
 # prompt parameter args:
@@ -64,6 +69,9 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
 #     --learner_type prompt --learner_name L2P \
 #     --prompt_param 30 20 -1 \
 #     --log_dir ${OUTDIR}/l2p++
+
+# rm -rf ${OUTDIR}/l2p++/models
+
 
 # FT++
 # python -u run.py --config $CONFIG_FT --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
