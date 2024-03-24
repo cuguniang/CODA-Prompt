@@ -57,8 +57,7 @@ class MyPrompt(nn.Module):
         task_p_count = (self.task_count + 1) * self.prompt_length_per_task
         P = getattr(self, 'prompts')[:task_p_count,:]
         # 固定住之前任务的prompt；不固定则注释下面这行
-        # P = torch.cat((P[:task_p_count-self.prompt_length_per_task].detach().clone(),P[-self.prompt_length_per_task:]), dim=0)         
-    
+        P = torch.cat((P[:task_p_count-self.prompt_length_per_task].detach().clone(),P[-self.prompt_length_per_task:]), dim=0)         
         P = P.expand((B, -1, self.emb_d))
         
         # return
@@ -488,12 +487,12 @@ class ViTZoo(nn.Module):
         # print("init prompts token Mean:", mean_value.item())
         # print("init prompts token std:", std_value.item())
 
-        # prompt_len, _ = self.prompt.prompts.shape
-        # for i in range(prompt_len):
-        #     mean_value = torch.mean(self.prompt.prompts[i,:])
-        #     std_value = torch.std(self.prompt.prompts[i,:])
-            # print(f"init prompt token {i} Mean:", mean_value.item())
-            # print(f"init prompt token {i} std:", std_value.item())
+        prompt_len, _ = self.prompt.prompts.shape
+        for i in range(prompt_len):
+            mean_value = torch.mean(self.prompt.prompts[i,:])
+            std_value = torch.std(self.prompt.prompts[i,:])
+            print(f"init prompt token {i} Mean:", mean_value.item())
+            print(f"init prompt token {i} std:", std_value.item())
 
     def dist_loss(self, x1, x2, loss_type="L1"):
 
@@ -540,16 +539,16 @@ class ViTZoo(nn.Module):
             attn_loss_flag = False
 
             # weighted output
-            weighted_output_flag = False
+            output_method = "prompt" # cls/mean/cls_weighted/prompts_weighted
             # 蒸馏相关
-            attn_within_prompt_pd_flag = True
+            attn_within_prompt_pd_flag = False
             distill_flag = False
             cls_dist_flag = True
             mean_feature_dist_flag = True
             original_dist_flag = False
             prompts_progressive_dist_flag = True
             
-                # select 相关
+            # select 相关
             SELECT_FLAG = False
             attn_within_heads = "max" # head间用mean/max
             FIXED_SELECT_FLAG = False  # false用limit（per sample）
@@ -565,7 +564,7 @@ class ViTZoo(nn.Module):
               
                 out, prompt_loss, attn = self.feat(x, prompt=self.prompt, train=train, task_id=self.task_id)
                 B, _, emb_d = out.shape
-                if weighted_output_flag:
+                if output_method.endswith("weighted"):
                     # 0312 用attn score做加权
                     out_image_tokens = out[:,2+self.task_id:,:]
                     selected_tokens_weighted_mean = torch.zeros_like(out[:,:self.task_id+1,:], device=out.device)
@@ -574,14 +573,21 @@ class ViTZoo(nn.Module):
                         # prompt i 对 196 token的注意力
                         attn2image_per_prompt = self.get_attn_score_within_heads(attn[:,:,i+1,-196:], dim=1, method=attn_within_heads)
                         # attn2prompt_per_token = self.get_attn_score_within_heads(attn[:,:,-196:,i+1], dim=1, method=attn_within_heads)
-                        
-                        token_weights = torch.softmax(attn2image_per_prompt, dim=-1) # b,196
+                        if output_method == "cls_weighted":
+                            token_weights = torch.softmax(attn2image_cls, dim=-1) # b,196
+                        elif output_method == "prompts_weighted":
+                            token_weights = torch.softmax(attn2image_per_prompt, dim=-1) # b,196
                         selected_tokens_weighted_mean[:,i] = (out_image_tokens * token_weights.unsqueeze(dim=-1)).sum(dim=1)
                     
                     out = selected_tokens_weighted_mean
+                elif output_method == "cls":
+                    out = out[:,0,:]
+                elif output_method == "mean":
+                    out = out[:,self.task_id+2:,:].mean(dim=1) 
+                elif output_method == "prompt":
+                    out = out[:,1:self.task_id+2,:]
                 else:
-                    # out = out[:,0,:]
-                    out = out[:,self.task_id+2:,:].mean(dim=1) # mean
+                    raise ValueError('output_method not supported!')
 
                 if SELECT_FLAG:            
                     #初始化结果
@@ -620,7 +626,7 @@ class ViTZoo(nn.Module):
                                 selected_tokens_mean[bi,i] = b
 
                     out = selected_tokens_mean
-                
+
                 # ===attn pd loss =====
                 if attn_within_prompt_pd_flag and self.task_id>0:
                 # 之前每个prompt及其对应的prompted_feature
@@ -732,7 +738,6 @@ class ViTZoo(nn.Module):
                 # 采用不同的输出去做最后的分类
                 # out = torch.cat((out[:,0,:].unsqueeze(dim=1),out[:,1+self.task_id,:].unsqueeze(dim=1)), dim=1)
                 # out = out.mean(dim=1) # (0+i)/2
-                # print("out mean,",out.shape)
 
                 # out = out[:,1+self.task_id,:] # [i]
                 # out = out[:,0,:] #[0]
@@ -795,10 +800,9 @@ class ViTZoo(nn.Module):
             # print(f"last classification head weight of task {i//10+1} std: ", std_value.item())
         # =====================
         if not pen:
-            out = self.last(out) # B x 100  
+            out = self.last(out) # B x 100
             # '''
-            print("len(out.size)",len(out.size))
-            if len(out.size) > 2:
+            if len(out.shape) > 2:
                 out_logits = out[:,0,:len(self.tasks[0])]
                 num_classes_cnt = len(self.tasks[0])
                 # attn_weights = torch.softmax(attn_per_prompt, dim=1) # attn
