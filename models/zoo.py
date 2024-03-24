@@ -13,7 +13,7 @@ import copy
 #产生和挑选prompt 且 计算prompt带来的loss
 
 class MyPrompt(nn.Module):
-    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768, cls=None):
         super().__init__()
         self.flag = "my"
         self.task_count = 0
@@ -24,7 +24,8 @@ class MyPrompt(nn.Module):
         # create and init prompt for each task
         # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, mean=0.02391728200018406, std=0.478795012830553) # vit
         # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, mean=-0.004702982492744923, std=0.02751666121184826) # moco
-        p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d)
+        p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d, init_ref=cls)
+        # p = create_prompt_with_init(self.prompt_length_per_task * self.n_tasks, emb_d)
         setattr(self, f'prompts', p)
         
         # final layer prompt weight init
@@ -398,13 +399,15 @@ class L2P(DualPrompt):
         self.e_pool_size = int(prompt_param[0])
 
 # note - ortho init has not been found to help l2p/dual prompt
-def create_prompt_with_init(a, b, c=None, ortho=False, mean=None, std=None):
+def create_prompt_with_init(a, b, c=None, ortho=False, mean=None, std=None, init_ref=None):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
     else:
         p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
     if ortho:
         nn.init.orthogonal_(p)
+    elif init_ref is not None:
+        p = torch.nn.Parameter(init_ref.squeeze(dim=0).expand(a, b),  requires_grad=True)
     elif mean and std:
         nn.init.normal_(p, mean=mean, std=std)
     else:
@@ -434,9 +437,12 @@ class ViTZoo(nn.Module):
             zoo_model.load_state_dict(load_dict)
         else:
             pass
+        # feature encoder changes if transformer vs resnet
+        self.feat = zoo_model
+        
         # classifier
         self.last = nn.Linear(768, num_classes)
-
+        
         # create prompting module
         if self.prompt_flag == 'l2p':
             self.prompt = L2P(768, prompt_param[0], prompt_param[1])
@@ -445,7 +451,7 @@ class ViTZoo(nn.Module):
         elif self.prompt_flag == 'coda':
             self.prompt = CodaPrompt(768, prompt_param[0], prompt_param[1])
         elif self.prompt_flag == 'my':
-            self.prompt = MyPrompt(768, prompt_param[0], prompt_param[1])
+            self.prompt = MyPrompt(768, prompt_param[0], prompt_param[1], cls=self.feat.cls_token)
             # task identifier weighted mapping
             # self.weight_mapping = nn.Linear(768, prompt_param[0]+1) # 做output的加权
             # self.feature_consist_mapping = nn.Linear(768, 768) # mean feature map 到 prompt
