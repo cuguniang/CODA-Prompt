@@ -454,9 +454,6 @@ class ViTZoo(nn.Module):
         else:
             self.prompt = None
         
-        # feature encoder changes if transformer vs resnet
-        self.feat = zoo_model
-
         if self.prompt_flag == "my":
             tuned_params = ["prompt.prompts", # prompt
             "last.weight","last.bias", # 分类头
