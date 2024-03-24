@@ -75,7 +75,7 @@ class CodaPrompt(nn.Module):
         self.key_d = key_dim
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
-
+        self.prompt_location = "input"
         # e prompt init
         for e in self.e_layers:
             # for model saving/loading simplicity, we init the full paramaters here
@@ -270,6 +270,7 @@ class DualPrompt(nn.Module):
         self.key_d = key_dim
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
+        self.prompt_location = "input"
 
         # g prompt init
         for g in self.g_layers:
@@ -381,6 +382,7 @@ class L2P(DualPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
         super().__init__(emb_d, n_tasks, prompt_param, key_dim)
         self.flag = "l2p"
+        self.prompt_location = "input"
 
     def _init_smart(self, emb_d, prompt_param):
         self.top_k = 5

@@ -131,3 +131,8 @@ out-c.out
 out-t.out
 dataloaders/splits/output.txt
 dataloaders/splits/input.txt
+out-test.out
+dataloaders/splits/e.py
+experiments/cifar-100.sh
+configs/cifar-100_prompt.yaml
+go.sh

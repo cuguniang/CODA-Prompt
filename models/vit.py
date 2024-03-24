@@ -192,7 +192,7 @@ class VisionTransformer(nn.Module):
             for i, blk in enumerate(self.blocks):
                 x, attn = blk(x, register_blk==i)
         else:
-            if prompt is not None and prompt.flag=="my":
+            if prompt.flag=="my":
                 prompt_list, loss, x = prompt.forward(q, 0, x, train=True, task_id=task_id)
                 shape2 = prompt_list.shape[1]
                 # for p_i in range(shape2):
@@ -212,23 +212,42 @@ class VisionTransformer(nn.Module):
             
             # l2p,dual,coda  attention prompt
             else: 
-                for i, blk in enumerate(self.blocks):
-                    if prompt is not None:
-                        if train:
-                            prompt_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
-                            prompt_loss += loss
+                if prompt.prompt_location == "input":
+                    for i, blk in enumerate(self.blocks):
+                        if prompt is not None:
+                            if train:
+                                prompt_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+                                prompt_loss += loss
+                            else:
+                                prompt_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+                            if prompt_list and len(prompt_list)>0:
+                                prompt_list = torch.cat((prompt_list[0], prompt_list[1]), dim=1)
+                                x = torch.cat((
+                                        x[:, :-196, :], # cls + prompts
+                                        prompt_list,
+                                        x[:, -196:, :]
+                                    ), dim=1)
+                            x, attn = blk(x, register_blk==i)
+
+                else:
+                    # attention
+                    for i, blk in enumerate(self.blocks):
+                        if prompt is not None:
+                            if train:
+                                prompt_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+                                prompt_loss += loss
+                            else:
+                                prompt_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+                            # if p_list is not None and i == 1:
+                            #     print(x[0,0,0:10])
+                            #     print(p_list[0][0,0,0:10])
+                            #     print(apple)
+                            # if p_list is not None:
+                            #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
+                            #     p_list = None
                         else:
-                            prompt_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
-                        # if p_list is not None and i == 1:
-                        #     print(x[0,0,0:10])
-                        #     print(p_list[0][0,0,0:10])
-                        #     print(apple)
-                        # if p_list is not None:
-                        #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
-                        #     p_list = None
-                    else:
-                        prompt_list = None
-                    x, attn = blk(x, register_blk==i, prompt=prompt_list)
+                            prompt_list = None
+                        x, attn = blk(x, register_blk==i, prompt=prompt_list)
                 # if i == 11: x = x.detach()
 
         x = self.norm(x)
