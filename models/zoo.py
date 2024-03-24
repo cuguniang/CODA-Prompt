@@ -537,7 +537,7 @@ class ViTZoo(nn.Module):
         # 只有prompt loss和head有梯度
         if self.prompt is not None:
             attn_loss_flag = False
-
+            prompt_aware =  "class" # task/class
             # weighted output
             output_method = "prompt" # cls/mean/cls_weighted/prompts_weighted
             # 蒸馏相关
@@ -803,17 +803,20 @@ class ViTZoo(nn.Module):
             out = self.last(out) # B x 100
             # '''
             if len(out.shape) > 2:
-                out_logits = out[:,0,:len(self.tasks[0])]
-                num_classes_cnt = len(self.tasks[0])
-                # attn_weights = torch.softmax(attn_per_prompt, dim=1) # attn
-                # out_logits = out[:,0,:10] * attn_weights[:,0].unsqueeze(dim=1) # attn
+                if prompt_aware == "class":
+                    out_logits = out[:,0,0:1]
+                    for i in range(1, (self.task_id+1)*10):
+                        out_logits = torch.cat((out_logits, out[:,i,i:i+1]), dim=1)
+                elif prompt_aware == "task":
+                    out_logits = out[:,0,:len(self.tasks[0])]
+                    num_classes_cnt = len(self.tasks[0])
+                    # attn_weights = torch.softmax(attn_per_prompt, dim=1) # attn
+                    for i in range(1, self.task_id+1): 
+                        out_logits = torch.cat((out_logits, out[:,i,num_classes_cnt:num_classes_cnt+len(self.tasks[i])]),dim=1)
+                        num_classes_cnt += len(self.tasks[i])
+                else:
+                    raise ValueError("prompt aware type not supported!")
                 
-                for i in range(1, self.task_id+1): 
-                    # out_logits = torch.cat((out_logits, out[:,i,i*10:i*10+10]),dim=1)
-                    out_logits = torch.cat((out_logits, out[:,i,num_classes_cnt:num_classes_cnt+len(self.tasks[i])]),dim=1)
-                    num_classes_cnt += len(self.tasks[i])
-                    # out_logits = torch.cat((out_logits, out[:,i,i*10:i*10+10]*attn_weights[:,i].unsqueeze(dim=1)),dim=1) # attn
-
                 out = out_logits
             else:
                 pass
@@ -943,6 +946,24 @@ class Dinov2Zoo(ViTZoo):
         print("dinov2 init cls token std:", std_value.item())
 
 
+class ClipZoo(ViTZoo):
+    def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None, tasks=[]):
+        super(ClipZoo, self).__init__(num_classes, pt, prompt_flag, prompt_param, tasks)
+
+        self.num_classes = num_classes
+        self.prompt_flag = prompt_flag
+        self.task_id = None
+    
+        self.tasks = tasks
+
+        # get feature encoder
+        if pt:
+            # print(clip.available_models()) #['RN50', 'RN101', 'RN50x4', 'RN50x16', 'ViT-B/32', 'ViT-B/16', 'ViT-L/14']
+            zoo_model, pre = clip.load("/share/ckpt/cgn/vpt/model/ViT-B-16.pt", jit=False, device="cuda")
+        else:
+            pass
+
+      
 def vit_pt_imnet(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
     
@@ -954,3 +975,6 @@ def moco_pt(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prom
 def dino_pt(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
     return Dinov2Zoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
     
+
+def clip_pt(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
+    return ClipZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
