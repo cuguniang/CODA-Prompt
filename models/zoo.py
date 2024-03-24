@@ -5,7 +5,8 @@ import torch.nn.init as init
 import torchvision.models as models
 from torch.autograd import Variable
 from .vit import VisionTransformer
-from .moco import VisionTransformerMoCo
+from .moco import vit_base as moco_base
+from .dinov2.dinov2 import vit_base as dinov2_base
 import numpy as np
 import copy
 
@@ -902,10 +903,45 @@ class MoCoZoo(ViTZoo):
         print("moco init cls token std:", std_value.item())
 
 
+class Dinov2Zoo(ViTZoo):
+    def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None, tasks=[]):
+        super(Dinov2Zoo, self).__init__(num_classes, pt, prompt_flag, prompt_param, tasks)
+       
+        if pt:
+            zoo_model = dinov2_base(patch_size=14)
+            ckpt = "/share/ckpt/cgn/vpt/model/dinov2_vitb14_reg4_pretrain.pth"
+
+            checkpoint = torch.load(ckpt, map_location="cpu")
+            load_dict = checkpoint#['state_dict']
+            for k in list(load_dict.keys()):
+                # retain only base_encoder up to before the embedding layer
+                if k.startswith('blocks'):
+                    # remove prefix
+                    load_dict["blocks.0."+k[len("blocks."):]] = load_dict[k]
+                    del load_dict[k]
+
+            del load_dict['pos_embed']; del load_dict['head.bias']
+            zoo_model.load_state_dict(load_dict, strict=False)
+
+        else:
+            pass
+        # feature encoder changes if transformer vs resnet
+        self.feat = zoo_model
+
+        mean_value = torch.mean(self.feat.cls_token)
+        std_value = torch.std(self.feat.cls_token)
+        print("dinov2 init cls token Mean:", mean_value.item())
+        print("dinov2 init cls token std:", std_value.item())
+
+
 def vit_pt_imnet(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
     
 
 def moco_pt(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
     return MoCoZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
+
+
+def dino_pt(out_dim, tasks=[], block_division = None, prompt_flag = 'None', prompt_param=None):
+    return Dinov2Zoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param, tasks=tasks)
     
